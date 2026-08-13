@@ -232,6 +232,12 @@ internal sealed class RetroStatusBar : Control
         TabStop = false;
     }
 
+    public override Size GetPreferredSize(Size proposedSize)
+    {
+        var textHeight = TextRenderer.MeasureText("Serveur arrêté", Font, Size.Empty, TextFormatFlags.NoPadding).Height;
+        return new Size(proposedSize.Width, Math.Max(ScaleLogical(22), textHeight + ScaleLogical(8)));
+    }
+
     [AllowNull]
     public override string Text
     {
@@ -294,6 +300,8 @@ internal sealed class RetroStatusBar : Control
             ForeColor,
             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
     }
+
+    private int ScaleLogical(int value) => Math.Max(1, value * DeviceDpi / 96);
 }
 
 internal sealed class RetroTitleBar : Control

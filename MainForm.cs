@@ -130,7 +130,7 @@ internal sealed class MainForm : RetroChromeForm
         shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
         shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        shell.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         menu.Dock = DockStyle.Fill;
         _statusLabel.Dock = DockStyle.Fill;
         root.Dock = DockStyle.Fill;
