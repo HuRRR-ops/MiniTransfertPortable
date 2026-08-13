@@ -49,8 +49,8 @@ internal sealed class AboutDialog : RetroChromeForm
         var description = new Label
         {
             Text = "Petit utilitaire portable de partage de fichiers.\r\n\r\n" +
-                   "Les fichiers sont transmis directement depuis cet ordinateur\r\n" +
-                   "vers le navigateur du destinataire.",
+                   "Les fichiers sont transmis directement depuis cet\r\n" +
+                   "ordinateur vers le navigateur du destinataire.",
             AutoSize = true,
             Location = new Point(17, 79),
             BackColor = RetroTheme.Face
