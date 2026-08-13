@@ -15,6 +15,7 @@ internal static class SelfTest
             await TestSingleFileAndResumeAsync(root, 55851);
             await TestProtectedFolderAsync(root, 55852);
             await TestRestartAndExpirationAsync(root, 55853);
+            TestPortConfiguration(root);
             return 0;
         }
         catch (Exception exception)
@@ -45,6 +46,7 @@ internal static class SelfTest
         await using var server = new ShareServer(port);
         server.Log += Console.Error.WriteLine;
         await server.StartAsync(share);
+        Require(!PortAvailability.IsAvailable(port, out _), "Le test de disponibilité ne détecte pas un port occupé.");
         using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
 
         using var landingResponse = await client.GetAsync($"/d/{share.Token}");
@@ -137,6 +139,21 @@ internal static class SelfTest
         using var response = await client.GetAsync($"/d/{share.Token}/download");
         Require(response.StatusCode == HttpStatusCode.OK, "Le téléchargement après démarrage/redémarrage a échoué.");
         Require((await response.Content.ReadAsByteArrayAsync()).SequenceEqual(expected), "Le fichier accentué a été altéré.");
+    }
+
+    private static void TestPortConfiguration(string root)
+    {
+        Require(PortableSettings.IsValidPort(PortableSettings.MinimumPort), "Le port minimal valide est refusé.");
+        Require(PortableSettings.IsValidPort(PortableSettings.MaximumPort), "Le port maximal valide est refusé.");
+        Require(!PortableSettings.IsValidPort(PortableSettings.MinimumPort - 1), "Un port trop petit est accepté.");
+        Require(!PortableSettings.IsValidPort(PortableSettings.MaximumPort + 1), "Un port trop grand est accepté.");
+        Require(PortAvailability.IsAvailable(55854, out _), "Le test de disponibilité refuse un port libre.");
+
+        var settingsPath = Path.Combine(root, "MiniTransfertPortable.ini");
+        Require(PortableSettings.TrySavePort(61234, out var error, settingsPath), $"La sauvegarde du port a échoué : {error}");
+        Require(PortableSettings.LoadPort(settingsPath) == 61234, "Le port sauvegardé n'est pas rechargé.");
+        File.WriteAllText(settingsPath, "Port=70000");
+        Require(PortableSettings.LoadPort(settingsPath) == PortableSettings.DefaultPort, "Un port invalide n'est pas remplacé par le port par défaut.");
     }
 
     private static void Require(bool condition, string message)

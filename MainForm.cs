@@ -5,7 +5,6 @@ namespace MiniTransfertPortable;
 
 internal sealed class MainForm : RetroChromeForm
 {
-    private const int Port = 55750;
     private readonly TextBox _sourceBox = new();
     private readonly TextBox _passwordBox = new();
     private readonly ComboBox _expirationBox = new();
@@ -21,6 +20,7 @@ internal sealed class MainForm : RetroChromeForm
     private readonly RetroButton _stopButton = new();
     private readonly RetroButton _copyButton = new();
     private readonly RetroStatusBar _statusLabel = new();
+    private readonly ToolStripMenuItem _configurationMenuItem = new();
     private readonly ImageList _fileIcons = RetroIcons.CreateSmallImageList();
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 500 };
     private ShareServer? _server;
@@ -31,14 +31,17 @@ internal sealed class MainForm : RetroChromeForm
     private DateTime _previousSample = DateTime.UtcNow;
     private double _smoothedBytesPerSecond;
     private bool _closing;
+    private int _port;
 
     public MainForm()
         : base("MiniTransfert Portable")
     {
+        _port = PortableSettings.LoadPort();
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(700, 500);
         ClientSize = new Size(800, 560);
         BuildInterface();
+        _statusLabel.Text = $"Prêt — port {_port}";
         _timer.Tick += UpdateTransferDisplay;
         _timer.Start();
         FormClosing += MainForm_FormClosing;
@@ -79,6 +82,10 @@ internal sealed class MainForm : RetroChromeForm
             ShortcutKeys = Keys.Control | Keys.C
         });
         toolsMenu.DropDownItems.Add("Ouvrir le lien &local", null, (_, _) => OpenLocalLink());
+        toolsMenu.DropDownItems.Add(new ToolStripSeparator());
+        _configurationMenuItem.Text = "Confi&guration...";
+        _configurationMenuItem.Click += (_, _) => OpenConfiguration();
+        toolsMenu.DropDownItems.Add(_configurationMenuItem);
         var helpMenu = new ToolStripMenuItem("&Aide");
         helpMenu.DropDownItems.Add("À &propos de MiniTransfert...", null, (_, _) =>
         {
@@ -468,7 +475,7 @@ internal sealed class MainForm : RetroChromeForm
             return;
         }
 
-        if (!FirewallManager.EnsureInboundRule(this))
+        if (!FirewallManager.EnsureInboundRule(this, _port))
         {
             RetroMessageBox.Show(this, "L’autorisation du pare-feu est nécessaire pour recevoir une connexion Internet.", "Pare-feu", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
@@ -511,7 +518,7 @@ internal sealed class MainForm : RetroChromeForm
                 _filesView.Items.Add(item);
             }
 
-            _server = new ShareServer(Port);
+            _server = new ShareServer(_port);
             _server.Log += AppendLog;
             await _server.StartAsync(_share);
 
@@ -523,7 +530,7 @@ internal sealed class MainForm : RetroChromeForm
                 throw new InvalidOperationException("Impossible de déterminer une adresse réseau.");
             }
 
-            _linkBox.Text = $"http://{NetworkAddress.UrlHost(address)}:{Port}/d/{_share.Token}";
+            _linkBox.Text = $"http://{NetworkAddress.UrlHost(address)}:{_port}/d/{_share.Token}";
             _copyButton.Enabled = true;
             _stopButton.Enabled = true;
             _startButton.Enabled = false;
@@ -531,6 +538,7 @@ internal sealed class MainForm : RetroChromeForm
             _folderButton.Enabled = false;
             _passwordBox.Enabled = false;
             _expirationBox.Enabled = false;
+            _configurationMenuItem.Enabled = false;
             _previousBytes = 0;
             _previousSample = DateTime.UtcNow;
             _smoothedBytesPerSecond = 0;
@@ -581,6 +589,7 @@ internal sealed class MainForm : RetroChromeForm
         _folderButton.Enabled = true;
         _passwordBox.Enabled = true;
         _expirationBox.Enabled = true;
+        _configurationMenuItem.Enabled = true;
         _progress.Value = 0;
         _percentLabel.Text = "0 %";
         _statsLabel.Text = "En attente d’un téléchargement.";
@@ -592,7 +601,7 @@ internal sealed class MainForm : RetroChromeForm
                 item.ImageKey = _sourceIsFolder ? RetroIcons.Folder : RetroIcons.File;
             }
         }
-        _statusLabel.Text = "Prêt";
+        _statusLabel.Text = $"Prêt — port {_port}";
         _statusLabel.ServerText = "Serveur arrêté";
         AppendLog($"[{DateTime.Now:HH:mm:ss}] Partage arrêté.");
     }
@@ -605,12 +614,14 @@ internal sealed class MainForm : RetroChromeForm
             _startButton.Enabled = false;
             _fileButton.Enabled = false;
             _folderButton.Enabled = false;
+            _configurationMenuItem.Enabled = false;
         }
         else if (_server is null)
         {
             _startButton.Enabled = true;
             _fileButton.Enabled = true;
             _folderButton.Enabled = true;
+            _configurationMenuItem.Enabled = true;
         }
     }
 
@@ -700,9 +711,44 @@ internal sealed class MainForm : RetroChromeForm
         }
         Process.Start(new ProcessStartInfo
         {
-            FileName = $"http://127.0.0.1:{Port}/d/{_share.Token}",
+            FileName = $"http://127.0.0.1:{_port}/d/{_share.Token}",
             UseShellExecute = true
         });
+    }
+
+    private void OpenConfiguration()
+    {
+        if (_server is not null)
+        {
+            RetroMessageBox.Show(
+                this,
+                "Arrête d’abord le partage avant de modifier le port.",
+                "Configuration",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        using var dialog = new ConfigurationDialog(_port);
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.SelectedPort == _port)
+        {
+            return;
+        }
+
+        if (!PortableSettings.TrySavePort(dialog.SelectedPort, out var error))
+        {
+            RetroMessageBox.Show(
+                this,
+                error ?? "Impossible d’enregistrer le port.",
+                "Configuration",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+            return;
+        }
+
+        _port = dialog.SelectedPort;
+        _statusLabel.Text = $"Prêt — port {_port}";
+        AppendLog($"[{DateTime.Now:HH:mm:ss}] Port configuré : {_port}.");
     }
 
     private void AppendLog(string line)

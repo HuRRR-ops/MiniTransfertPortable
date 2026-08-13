@@ -4,18 +4,17 @@ namespace MiniTransfertPortable;
 
 internal static class FirewallManager
 {
-    private const string RuleName = "MiniTransfert Portable (TCP 55750)";
-
-    public static bool EnsureInboundRule(IWin32Window owner)
+    public static bool EnsureInboundRule(IWin32Window owner, int port)
     {
-        if (RuleExists())
+        var ruleName = RuleName(port);
+        if (RuleExists(ruleName))
         {
             return true;
         }
 
         var answer = RetroMessageBox.Show(
             owner,
-            "Windows doit autoriser les connexions entrantes sur le port TCP 55750.\n\n" +
+            $"Windows doit autoriser les connexions entrantes sur le port TCP {port}.\n\n" +
             "Une confirmation administrateur sera demandée une seule fois.",
             "Autorisation du pare-feu",
             MessageBoxButtons.OKCancel,
@@ -30,13 +29,13 @@ internal static class FirewallManager
             using var process = Process.Start(new ProcessStartInfo
             {
                 FileName = Path.Combine(Environment.SystemDirectory, "netsh.exe"),
-                Arguments = $"advfirewall firewall add rule name=\"{RuleName}\" dir=in action=allow protocol=TCP localport=55750 profile=any",
+                Arguments = $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=allow protocol=TCP localport={port} profile=any",
                 UseShellExecute = true,
                 Verb = "runas",
                 WindowStyle = ProcessWindowStyle.Hidden
             });
             process?.WaitForExit();
-            return process?.ExitCode == 0 && RuleExists();
+            return process?.ExitCode == 0 && RuleExists(ruleName);
         }
         catch (System.ComponentModel.Win32Exception)
         {
@@ -44,14 +43,16 @@ internal static class FirewallManager
         }
     }
 
-    private static bool RuleExists()
+    private static string RuleName(int port) => $"MiniTransfert Portable (TCP {port})";
+
+    private static bool RuleExists(string ruleName)
     {
         try
         {
             using var process = Process.Start(new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-NoProfile -NonInteractive -Command \"if (Get-NetFirewallRule -DisplayName '{RuleName}' -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}\"",
+                Arguments = $"-NoProfile -NonInteractive -Command \"if (Get-NetFirewallRule -DisplayName '{ruleName}' -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
