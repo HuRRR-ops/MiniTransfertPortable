@@ -235,7 +235,7 @@ internal sealed class RetroStatusBar : Control
     public override Size GetPreferredSize(Size proposedSize)
     {
         var textHeight = TextRenderer.MeasureText("Serveur arrêté", Font, Size.Empty, TextFormatFlags.NoPadding).Height;
-        return new Size(proposedSize.Width, Math.Max(ScaleLogical(22), textHeight + ScaleLogical(8)));
+        return new Size(proposedSize.Width, Math.Max(ScaleLogical(26), textHeight + ScaleLogical(12)));
     }
 
     [AllowNull]
@@ -275,8 +275,8 @@ internal sealed class RetroStatusBar : Control
     {
         var graphics = paintEvent.Graphics;
         graphics.Clear(BackColor);
-        var y = 3;
-        var height = Math.Max(16, Height - 5);
+        var y = ScaleLogical(2);
+        var height = Math.Max(ScaleLogical(18), Height - ScaleLogical(4));
         var serverWidth = Math.Min(170, Math.Max(120, Width / 5));
         var itemWidth = Math.Min(130, Math.Max(95, Width / 7));
         var mainWidth = Math.Max(80, Width - serverWidth - itemWidth - 13);
