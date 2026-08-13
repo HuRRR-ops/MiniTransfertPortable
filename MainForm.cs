@@ -3,26 +3,25 @@ using System.Drawing;
 
 namespace MiniTransfertPortable;
 
-internal sealed class MainForm : Form
+internal sealed class MainForm : RetroChromeForm
 {
     private const int Port = 55750;
-    private static readonly Color ClassicFace = Color.FromArgb(212, 208, 200);
-    private static readonly Color ClassicWindow = Color.White;
     private readonly TextBox _sourceBox = new();
     private readonly TextBox _passwordBox = new();
     private readonly ComboBox _expirationBox = new();
     private readonly TextBox _linkBox = new();
     private readonly ListView _filesView = new();
-    private readonly ProgressBar _progress = new();
+    private readonly RetroProgressBar _progress = new();
     private readonly Label _percentLabel = new();
     private readonly Label _statsLabel = new();
     private readonly TextBox _logBox = new();
-    private readonly Button _fileButton = new();
-    private readonly Button _folderButton = new();
-    private readonly Button _startButton = new();
-    private readonly Button _stopButton = new();
-    private readonly Button _copyButton = new();
-    private readonly ToolStripStatusLabel _statusLabel = new("Prêt");
+    private readonly RetroButton _fileButton = new();
+    private readonly RetroButton _folderButton = new();
+    private readonly RetroButton _startButton = new();
+    private readonly RetroButton _stopButton = new();
+    private readonly RetroButton _copyButton = new();
+    private readonly RetroStatusBar _statusLabel = new();
+    private readonly ImageList _fileIcons = RetroIcons.CreateSmallImageList();
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 500 };
     private ShareServer? _server;
     private ShareDescriptor? _share;
@@ -34,17 +33,12 @@ internal sealed class MainForm : Form
     private bool _closing;
 
     public MainForm()
+        : base("MiniTransfert Portable")
     {
-        Text = "MiniTransfert Portable";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(700, 470);
-        Size = new Size(790, 545);
-        BackColor = ClassicFace;
-        Font = new Font("Tahoma", 8.25F, FontStyle.Regular, GraphicsUnit.Point);
-        AutoScaleMode = AutoScaleMode.Dpi;
-        FormBorderStyle = FormBorderStyle.Sizable;
+        MinimumSize = new Size(700, 500);
+        ClientSize = new Size(800, 560);
         BuildInterface();
-        ApplyClassicAppearance(this);
         _timer.Tick += UpdateTransferDisplay;
         _timer.Start();
         FormClosing += MainForm_FormClosing;
@@ -54,66 +48,68 @@ internal sealed class MainForm : Form
     {
         var menu = new MenuStrip
         {
-            BackColor = ClassicFace,
+            Dock = DockStyle.Top,
+            BackColor = RetroTheme.Face,
             ForeColor = Color.Black,
             Font = Font,
             GripStyle = ToolStripGripStyle.Hidden,
-            RenderMode = ToolStripRenderMode.System,
-            Padding = new Padding(2, 1, 0, 1),
+            Renderer = new RetroMenuRenderer(),
+            Padding = new Padding(2, 0, 0, 0),
             AutoSize = false,
-            Height = 21
+            Height = 22,
+            ShowItemToolTips = false
         };
-        var fileMenu = new ToolStripMenuItem("Fichier");
-        fileMenu.DropDownItems.Add("Choisir un fichier...", null, (_, _) => _ = ChooseFileAsync());
-        fileMenu.DropDownItems.Add("Choisir un dossier...", null, (_, _) => _ = ChooseFolderAsync());
+        var fileMenu = new ToolStripMenuItem("&Fichier");
+        fileMenu.DropDownItems.Add(new ToolStripMenuItem("Choisir un &fichier...", null, (_, _) => _ = ChooseFileAsync())
+        {
+            ShortcutKeys = Keys.Control | Keys.O
+        });
+        fileMenu.DropDownItems.Add(new ToolStripMenuItem("Choisir un &dossier...", null, (_, _) => _ = ChooseFolderAsync())
+        {
+            ShortcutKeys = Keys.Control | Keys.Shift | Keys.O
+        });
         fileMenu.DropDownItems.Add(new ToolStripSeparator());
-        fileMenu.DropDownItems.Add("Quitter", null, (_, _) => Close());
-        var toolsMenu = new ToolStripMenuItem("Outils");
-        toolsMenu.DropDownItems.Add("Copier le lien", null, (_, _) => CopyLink());
-        toolsMenu.DropDownItems.Add("Ouvrir le lien local", null, (_, _) => OpenLocalLink());
-        var helpMenu = new ToolStripMenuItem("Aide");
-        helpMenu.DropDownItems.Add("À propos", null, (_, _) => MessageBox.Show(
-            this,
-            "MiniTransfert Portable\nPartage direct de fichiers par navigateur\nPort TCP 55750",
-            "À propos",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information));
+        fileMenu.DropDownItems.Add(new ToolStripMenuItem("&Quitter", null, (_, _) => Close())
+        {
+            ShortcutKeys = Keys.Alt | Keys.F4
+        });
+        var toolsMenu = new ToolStripMenuItem("&Outils");
+        toolsMenu.DropDownItems.Add(new ToolStripMenuItem("&Copier le lien", null, (_, _) => CopyLink())
+        {
+            ShortcutKeys = Keys.Control | Keys.C
+        });
+        toolsMenu.DropDownItems.Add("Ouvrir le lien &local", null, (_, _) => OpenLocalLink());
+        var helpMenu = new ToolStripMenuItem("&Aide");
+        helpMenu.DropDownItems.Add("À &propos de MiniTransfert...", null, (_, _) =>
+        {
+            using var dialog = new AboutDialog();
+            dialog.ShowDialog(this);
+        });
+        foreach (var dropDown in new[] { fileMenu, toolsMenu, helpMenu })
+        {
+            dropDown.DropDown.BackColor = RetroTheme.Face;
+            dropDown.DropDown.ForeColor = RetroTheme.Text;
+            dropDown.DropDown.Font = Font;
+            dropDown.DropDown.Renderer = menu.Renderer;
+        }
         menu.Items.AddRange([fileMenu, toolsMenu, helpMenu]);
         MainMenuStrip = menu;
-        Controls.Add(menu);
-
-        var status = new StatusStrip
-        {
-            BackColor = ClassicFace,
-            ForeColor = Color.Black,
-            Font = Font,
-            RenderMode = ToolStripRenderMode.System,
-            SizingGrip = true,
-            AutoSize = false,
-            Height = 20,
-            Padding = new Padding(2, 0, 12, 0)
-        };
-        _statusLabel.Spring = true;
-        _statusLabel.TextAlign = ContentAlignment.MiddleLeft;
-        status.Items.Add(_statusLabel);
-        Controls.Add(status);
 
         var root = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            BackColor = ClassicFace,
-            Padding = new Padding(6, 4, 6, 3),
+            BackColor = RetroTheme.Face,
+            Padding = new Padding(5, 4, 5, 3),
+            Margin = Padding.Empty,
             ColumnCount = 1,
             RowCount = 6
         };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 43));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        Controls.Add(root);
-        root.BringToFront();
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 57));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
 
         root.Controls.Add(BuildSelectionGroup(), 0, 0);
         root.Controls.Add(BuildLinkGroup(), 0, 1);
@@ -121,16 +117,39 @@ internal sealed class MainForm : Form
         root.Controls.Add(BuildProgressGroup(), 0, 3);
         root.Controls.Add(BuildLogGroup(), 0, 4);
         root.Controls.Add(BuildButtons(), 0, 5);
+
+        var shell = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = RetroTheme.Face,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+            ColumnCount = 1,
+            RowCount = 3
+        };
+        shell.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        shell.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        shell.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+        menu.Dock = DockStyle.Fill;
+        _statusLabel.Dock = DockStyle.Fill;
+        root.Dock = DockStyle.Fill;
+        shell.Controls.Add(menu, 0, 0);
+        shell.Controls.Add(root, 0, 1);
+        shell.Controls.Add(_statusLabel, 0, 2);
+        ContentPanel.Controls.Add(shell);
+        AcceptButton = _startButton;
+        Shown += (_, _) => _sourceBox.Focus();
     }
 
     private Control BuildSelectionGroup()
     {
-        var group = ClassicGroup("Élément à partager");
+        var group = CreateGroup("Élément à partager");
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            BackColor = ClassicFace,
+            BackColor = RetroTheme.Face,
             ColumnCount = 4,
             RowCount = 2,
             Margin = Padding.Empty,
@@ -141,31 +160,37 @@ internal sealed class MainForm : Form
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        layout.Controls.Add(ClassicLabel("Source :"), 0, 0);
+        layout.Controls.Add(CreateLabel("&Source :"), 0, 0);
         _sourceBox.ReadOnly = true;
         _sourceBox.Dock = DockStyle.Fill;
+        _sourceBox.BackColor = RetroTheme.Window;
+        _sourceBox.BorderStyle = BorderStyle.Fixed3D;
         _sourceBox.Margin = new Padding(3, 1, 3, 1);
         layout.Controls.Add(_sourceBox, 1, 0);
-        _fileButton.Text = "Fichier...";
-        _fileButton.Size = new Size(72, 23);
+        _fileButton.Text = "&Fichier...";
+        _fileButton.Size = new Size(76, 23);
         _fileButton.Margin = new Padding(2, 0, 2, 1);
         _fileButton.Click += (_, _) => _ = ChooseFileAsync();
         layout.Controls.Add(_fileButton, 2, 0);
-        _folderButton.Text = "Dossier...";
-        _folderButton.Size = new Size(72, 23);
+        _folderButton.Text = "&Dossier...";
+        _folderButton.Size = new Size(76, 23);
         _folderButton.Margin = new Padding(2, 0, 0, 1);
         _folderButton.Click += (_, _) => _ = ChooseFolderAsync();
         layout.Controls.Add(_folderButton, 3, 0);
 
-        layout.Controls.Add(ClassicLabel("Mot de passe :"), 0, 1);
+        layout.Controls.Add(CreateLabel("&Mot de passe :"), 0, 1);
         _passwordBox.UseSystemPasswordChar = true;
         _passwordBox.Dock = DockStyle.Fill;
+        _passwordBox.BackColor = RetroTheme.Window;
+        _passwordBox.BorderStyle = BorderStyle.Fixed3D;
         _passwordBox.Margin = new Padding(3, 1, 3, 1);
         layout.Controls.Add(_passwordBox, 1, 1);
-        var expirationLabel = ClassicLabel("Expiration :");
+        var expirationLabel = CreateLabel("&Expiration :");
         expirationLabel.Anchor = AnchorStyles.Right;
         layout.Controls.Add(expirationLabel, 2, 1);
         _expirationBox.DropDownStyle = ComboBoxStyle.DropDownList;
+        _expirationBox.FlatStyle = FlatStyle.Standard;
+        _expirationBox.BackColor = RetroTheme.Window;
         _expirationBox.Items.AddRange([
             new ExpirationChoice("1 heure", TimeSpan.FromHours(1)),
             new ExpirationChoice("24 heures", TimeSpan.FromHours(24)),
@@ -182,12 +207,12 @@ internal sealed class MainForm : Form
 
     private Control BuildLinkGroup()
     {
-        var group = ClassicGroup("Lien de partage");
+        var group = CreateGroup("Lien de partage");
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            BackColor = ClassicFace,
+            BackColor = RetroTheme.Face,
             ColumnCount = 3,
             Margin = Padding.Empty,
             Padding = Padding.Empty
@@ -195,12 +220,14 @@ internal sealed class MainForm : Form
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        layout.Controls.Add(ClassicLabel("Lien :"), 0, 0);
+        layout.Controls.Add(CreateLabel("&Lien :"), 0, 0);
         _linkBox.ReadOnly = true;
         _linkBox.Dock = DockStyle.Fill;
+        _linkBox.BackColor = RetroTheme.Window;
+        _linkBox.BorderStyle = BorderStyle.Fixed3D;
         _linkBox.Margin = new Padding(3, 1, 3, 1);
         layout.Controls.Add(_linkBox, 1, 0);
-        _copyButton.Text = "Copier";
+        _copyButton.Text = "&Copier";
         _copyButton.Enabled = false;
         _copyButton.Size = new Size(70, 23);
         _copyButton.Margin = new Padding(2, 0, 0, 1);
@@ -218,22 +245,27 @@ internal sealed class MainForm : Form
         _filesView.GridLines = true;
         _filesView.HideSelection = false;
         _filesView.BorderStyle = BorderStyle.Fixed3D;
-        _filesView.BackColor = ClassicWindow;
+        _filesView.BackColor = RetroTheme.Window;
+        _filesView.ForeColor = RetroTheme.Text;
+        _filesView.SmallImageList = _fileIcons;
+        _filesView.LabelWrap = false;
+        _filesView.MultiSelect = false;
         _filesView.Margin = new Padding(0, 2, 0, 2);
-        _filesView.Columns.Add("Nom", 475);
-        _filesView.Columns.Add("Taille", 105, HorizontalAlignment.Right);
-        _filesView.Columns.Add("État", 135);
+        _filesView.Columns.Add("Nom", 470);
+        _filesView.Columns.Add("Taille", 110, HorizontalAlignment.Right);
+        _filesView.Columns.Add("État", 145);
+        _filesView.Resize += (_, _) => ResizeFileColumns();
         return _filesView;
     }
 
     private Control BuildProgressGroup()
     {
-        var group = ClassicGroup("Progression");
+        var group = CreateGroup("Progression");
         var layout = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            BackColor = ClassicFace,
+            BackColor = RetroTheme.Face,
             ColumnCount = 2,
             RowCount = 2,
             Margin = Padding.Empty,
@@ -243,15 +275,18 @@ internal sealed class MainForm : Form
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         _progress.Dock = DockStyle.Fill;
         _progress.Maximum = 1000;
-        _progress.Height = 18;
+        _progress.Height = 20;
         _progress.Margin = new Padding(0, 1, 4, 1);
         layout.Controls.Add(_progress, 0, 0);
         _percentLabel.Text = "0 %";
+        _percentLabel.Font = RetroTheme.BoldFont;
+        _percentLabel.BackColor = RetroTheme.Face;
         _percentLabel.AutoSize = true;
         _percentLabel.Anchor = AnchorStyles.Right;
         _percentLabel.Margin = new Padding(2, 1, 0, 1);
         layout.Controls.Add(_percentLabel, 1, 0);
         _statsLabel.Text = "En attente d’un téléchargement.";
+        _statsLabel.BackColor = RetroTheme.Face;
         _statsLabel.AutoSize = true;
         _statsLabel.Margin = new Padding(0, 2, 0, 0);
         layout.SetColumnSpan(_statsLabel, 2);
@@ -262,14 +297,14 @@ internal sealed class MainForm : Form
 
     private Control BuildLogGroup()
     {
-        var group = ClassicGroup("Journal");
+        var group = CreateGroup("Journal");
         group.Dock = DockStyle.Fill;
         _logBox.Dock = DockStyle.Fill;
         _logBox.Multiline = true;
         _logBox.ReadOnly = true;
         _logBox.ScrollBars = ScrollBars.Vertical;
-        _logBox.Font = new Font("Courier New", 8.25F, FontStyle.Regular, GraphicsUnit.Point);
-        _logBox.BackColor = ClassicWindow;
+        _logBox.Font = RetroTheme.LogFont;
+        _logBox.BackColor = RetroTheme.Window;
         _logBox.BorderStyle = BorderStyle.Fixed3D;
         group.Controls.Add(_logBox);
         return group;
@@ -280,81 +315,63 @@ internal sealed class MainForm : Form
         var panel = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
-            AutoSize = true,
+            AutoSize = false,
             FlowDirection = FlowDirection.LeftToRight,
-            BackColor = ClassicFace,
+            BackColor = RetroTheme.Face,
             Padding = new Padding(0, 2, 0, 0),
             Margin = Padding.Empty,
+            MinimumSize = new Size(0, 29),
             WrapContents = false
         };
-        _startButton.Text = "Démarrer le partage";
-        _startButton.Size = new Size(145, 25);
+        _startButton.Text = "&Démarrer le partage";
+        _startButton.Size = new Size(150, 25);
         _startButton.Margin = new Padding(0, 0, 6, 0);
         _startButton.Click += StartButton_Click;
-        _stopButton.Text = "Arrêter";
+        _stopButton.Text = "&Arrêter";
         _stopButton.Size = new Size(86, 25);
         _stopButton.Margin = new Padding(0, 0, 6, 0);
         _stopButton.Enabled = false;
         _stopButton.Click += async (_, _) => await StopSharingAsync();
-        var closeButton = new Button { Text = "Fermer", Size = new Size(86, 25), Margin = Padding.Empty };
+        var closeButton = new RetroButton { Text = "&Fermer", Size = new Size(86, 25), Margin = Padding.Empty };
         closeButton.Click += (_, _) => Close();
         panel.Controls.AddRange([_startButton, _stopButton, closeButton]);
         return panel;
     }
 
-    private static GroupBox ClassicGroup(string text) => new()
+    private static RetroGroupBox CreateGroup(string text) => new()
     {
         Text = text,
         Dock = DockStyle.Top,
         AutoSize = true,
-        BackColor = ClassicFace,
+        BackColor = RetroTheme.Face,
         ForeColor = Color.Black,
         Padding = new Padding(6, 14, 6, 5),
         Margin = new Padding(0, 1, 0, 1)
     };
 
-    private static Label ClassicLabel(string text) => new()
+    private static Label CreateLabel(string text) => new()
     {
         Text = text,
+        UseMnemonic = true,
         Anchor = AnchorStyles.Left,
         AutoSize = true,
-        BackColor = ClassicFace,
+        BackColor = RetroTheme.Face,
         ForeColor = Color.Black,
         Margin = new Padding(0, 3, 4, 2)
     };
 
-    private static void ApplyClassicAppearance(Control root)
+    private void ResizeFileColumns()
     {
-        foreach (Control control in root.Controls)
+        if (_filesView.ClientSize.Width < 200 || _filesView.Columns.Count != 3)
         {
-            switch (control)
-            {
-                case Button button:
-                    button.FlatStyle = FlatStyle.Standard;
-                    button.UseVisualStyleBackColor = false;
-                    button.BackColor = ClassicFace;
-                    button.ForeColor = Color.Black;
-                    break;
-                case TextBox textBox:
-                    textBox.BorderStyle = BorderStyle.Fixed3D;
-                    break;
-                case ComboBox comboBox:
-                    comboBox.FlatStyle = FlatStyle.Standard;
-                    comboBox.BackColor = ClassicWindow;
-                    break;
-                case GroupBox groupBox:
-                    groupBox.BackColor = ClassicFace;
-                    break;
-                case Panel panel:
-                    panel.BackColor = ClassicFace;
-                    break;
-            }
-
-            if (control.HasChildren)
-            {
-                ApplyClassicAppearance(control);
-            }
+            return;
         }
+        var available = Math.Max(250, _filesView.ClientSize.Width - 4);
+        var sizeWidth = Math.Max(90, available * 15 / 100);
+        var stateWidth = Math.Max(125, available * 20 / 100);
+        _filesView.Columns[0].Width = Math.Max(100, available - sizeWidth - stateWidth);
+        _filesView.Columns[1].Width = sizeWidth;
+        _filesView.Columns[2].Width = stateWidth;
     }
 
     private async Task ChooseFileAsync()
@@ -372,7 +389,7 @@ internal sealed class MainForm : Form
         {
             if (!IsDisposed)
             {
-                MessageBox.Show(this, exception.Message, "Sélection du fichier", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                RetroMessageBox.Show(this, exception.Message, "Sélection du fichier", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
         finally
@@ -399,7 +416,7 @@ internal sealed class MainForm : Form
         {
             if (!IsDisposed)
             {
-                MessageBox.Show(this, exception.Message, "Sélection du dossier", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                RetroMessageBox.Show(this, exception.Message, "Sélection du dossier", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
         finally
@@ -425,7 +442,9 @@ internal sealed class MainForm : Form
         _sourceIsFolder = isFolder;
         _sourceBox.Text = path;
         _filesView.Items.Clear();
-        var item = new ListViewItem(Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)));
+        var item = new ListViewItem(
+            Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar)),
+            isFolder ? RetroIcons.Folder : RetroIcons.File);
         if (isFolder)
         {
             item.SubItems.Add("Dossier");
@@ -437,19 +456,21 @@ internal sealed class MainForm : Form
         item.SubItems.Add("Prêt");
         _filesView.Items.Add(item);
         _statusLabel.Text = "Source sélectionnée";
+        _statusLabel.ItemText = isFolder ? "1 dossier" : "1 fichier";
+        _statusLabel.ServerText = "Serveur arrêté";
     }
 
     private async void StartButton_Click(object? sender, EventArgs e)
     {
         if (string.IsNullOrWhiteSpace(_sourcePath))
         {
-            MessageBox.Show(this, "Choisis d’abord un fichier ou un dossier.", "Source manquante", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            RetroMessageBox.Show(this, "Choisis d’abord un fichier ou un dossier.", "Source manquante", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
         if (!FirewallManager.EnsureInboundRule(this))
         {
-            MessageBox.Show(this, "L’autorisation du pare-feu est nécessaire pour recevoir une connexion Internet.", "Pare-feu", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            RetroMessageBox.Show(this, "L’autorisation du pare-feu est nécessaire pour recevoir une connexion Internet.", "Pare-feu", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
 
@@ -468,14 +489,14 @@ internal sealed class MainForm : Form
             {
                 foreach (var file in _share.Files.Take(5000))
                 {
-                    var item = new ListViewItem(file.DisplayName);
+                    var item = new ListViewItem(file.DisplayName, RetroIcons.File);
                     item.SubItems.Add(ShareServer.FormatBytes(file.Length));
                     item.SubItems.Add("En attente");
                     _filesView.Items.Add(item);
                 }
                 if (_share.Files.Count > 5000)
                 {
-                    var more = new ListViewItem($"… et {_share.Files.Count - 5000:N0} autre(s)");
+                    var more = new ListViewItem($"… et {_share.Files.Count - 5000:N0} autre(s)", RetroIcons.Folder);
                     more.SubItems.Add(string.Empty);
                     more.SubItems.Add("Inclus");
                     _filesView.Items.Add(more);
@@ -484,7 +505,7 @@ internal sealed class MainForm : Form
             else
             {
                 var file = _share.Files[0];
-                var item = new ListViewItem(file.DisplayName);
+                var item = new ListViewItem(file.DisplayName, RetroIcons.File);
                 item.SubItems.Add(ShareServer.FormatBytes(file.Length));
                 item.SubItems.Add("En attente");
                 _filesView.Items.Add(item);
@@ -514,6 +535,8 @@ internal sealed class MainForm : Form
             _previousSample = DateTime.UtcNow;
             _smoothedBytesPerSecond = 0;
             _statusLabel.Text = publicAddress is null ? "Partage actif — adresse locale seulement" : "Partage actif — lien prêt";
+            _statusLabel.ItemText = _share.IsFolder ? $"{_share.Files.Count:N0} fichier(s)" : "1 fichier";
+            _statusLabel.ServerText = "Serveur actif";
             AppendLog(publicAddress is null
                 ? $"[{DateTime.Now:HH:mm:ss}] Adresse publique indisponible; lien local affiché."
                 : $"[{DateTime.Now:HH:mm:ss}] Lien Internet prêt et copié.");
@@ -528,7 +551,12 @@ internal sealed class MainForm : Form
             }
             _share = null;
             _statusLabel.Text = "Erreur";
-            MessageBox.Show(this, exception.Message, "Impossible de démarrer le partage", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _statusLabel.ServerText = "Serveur arrêté";
+            foreach (ListViewItem item in _filesView.Items)
+            {
+                item.ImageKey = RetroIcons.Error;
+            }
+            RetroMessageBox.Show(this, exception.Message, "Impossible de démarrer le partage", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
@@ -561,9 +589,11 @@ internal sealed class MainForm : Form
             if (item.SubItems.Count > 2)
             {
                 item.SubItems[2].Text = "Arrêté";
+                item.ImageKey = _sourceIsFolder ? RetroIcons.Folder : RetroIcons.File;
             }
         }
         _statusLabel.Text = "Prêt";
+        _statusLabel.ServerText = "Serveur arrêté";
         AppendLog($"[{DateTime.Now:HH:mm:ss}] Partage arrêté.");
     }
 
@@ -608,16 +638,25 @@ internal sealed class MainForm : Form
         var remaining = _smoothedBytesPerSecond > 1
             ? FormatDuration(TimeSpan.FromSeconds(remainingBytes / _smoothedBytesPerSecond))
             : "—";
-        _statsLabel.Text = $"{speed} — {ShareServer.FormatBytes(snapshot.BytesSent)} envoyés — restant : {remaining} — connexion(s) : {snapshot.ActiveDownloads}";
+        _statsLabel.Text = $"{speed} — {ShareServer.FormatBytes(snapshot.BytesSent)} / {ShareServer.FormatBytes(_share.TotalBytes)} — temps restant : {remaining} — connexion(s) : {snapshot.ActiveDownloads}";
 
         var state = snapshot.ActiveDownloads > 0 ? "Transfert en cours" : snapshot.CompletedDownloads > 0 ? "Téléchargé" : "En attente";
+        var imageKey = snapshot.ActiveDownloads > 0
+            ? RetroIcons.Transfer
+            : snapshot.CompletedDownloads > 0
+                ? RetroIcons.Complete
+                : RetroIcons.File;
         foreach (ListViewItem item in _filesView.Items)
         {
             if (item.SubItems.Count > 2)
             {
                 item.SubItems[2].Text = state;
+                item.ImageKey = imageKey;
             }
         }
+        _statusLabel.ServerText = snapshot.ActiveDownloads > 0
+            ? $"{speed} | {snapshot.ActiveDownloads} connexion(s)"
+            : "Serveur actif";
     }
 
     private void CopyLink(bool silent = false)
@@ -626,7 +665,7 @@ internal sealed class MainForm : Form
         {
             if (!silent)
             {
-                MessageBox.Show(this, "Aucun lien actif.", "Copier le lien", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                RetroMessageBox.Show(this, "Aucun lien actif.", "Copier le lien", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             return;
         }
@@ -636,7 +675,7 @@ internal sealed class MainForm : Form
             AppendLog($"[{DateTime.Now:HH:mm:ss}] Presse-papiers indisponible : {error}");
             if (!silent)
             {
-                MessageBox.Show(
+                RetroMessageBox.Show(
                     this,
                     "Le lien est prêt, mais Windows n’a pas permis de le copier automatiquement.\n\n" +
                     "Sélectionne le texte du champ Lien et utilise Ctrl+C.",
@@ -656,7 +695,7 @@ internal sealed class MainForm : Form
     {
         if (_share is null)
         {
-            MessageBox.Show(this, "Démarre d’abord un partage.", "Lien local", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            RetroMessageBox.Show(this, "Démarre d’abord un partage.", "Lien local", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
         Process.Start(new ProcessStartInfo

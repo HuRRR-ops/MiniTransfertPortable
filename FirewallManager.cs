@@ -13,7 +13,7 @@ internal static class FirewallManager
             return true;
         }
 
-        var answer = MessageBox.Show(
+        var answer = RetroMessageBox.Show(
             owner,
             "Windows doit autoriser les connexions entrantes sur le port TCP 55750.\n\n" +
             "Une confirmation administrateur sera demandée une seule fois.",

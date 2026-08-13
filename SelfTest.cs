@@ -14,6 +14,7 @@ internal static class SelfTest
         {
             await TestSingleFileAndResumeAsync(root, 55851);
             await TestProtectedFolderAsync(root, 55852);
+            await TestRestartAndExpirationAsync(root, 55853);
             return 0;
         }
         catch (Exception exception)
@@ -89,6 +90,14 @@ internal static class SelfTest
         using var unauthenticatedDownload = await client.GetAsync($"/d/{share.Token}/file/1");
         Require(unauthenticatedDownload.StatusCode == HttpStatusCode.Redirect, "Un fichier protégé est accessible sans mot de passe.");
 
+        using var wrongForm = new FormUrlEncodedContent(new Dictionary<string, string> { ["password"] = "incorrect" });
+        using var wrongAuthentication = await client.PostAsync($"/d/{share.Token}/auth", wrongForm);
+        var wrongPasswordPage = await wrongAuthentication.Content.ReadAsStringAsync();
+        Require(wrongAuthentication.StatusCode == HttpStatusCode.OK, "Le refus d'un mauvais mot de passe n'a pas réaffiché le formulaire.");
+        Require(wrongPasswordPage.Contains("incorrect", StringComparison.OrdinalIgnoreCase), "Le formulaire ne signale pas le mauvais mot de passe.");
+        using var stillProtected = await client.GetAsync($"/d/{share.Token}/file/1");
+        Require(stillProtected.StatusCode == HttpStatusCode.Redirect, "Un mauvais mot de passe a autorisé le téléchargement.");
+
         using var form = new FormUrlEncodedContent(new Dictionary<string, string> { ["password"] = "secret-test" });
         using var authentication = await client.PostAsync($"/d/{share.Token}/auth", form);
         Require(authentication.StatusCode == HttpStatusCode.Redirect, "L'authentification correcte n'a pas redirigé.");
@@ -96,6 +105,38 @@ internal static class SelfTest
         using var download = await client.GetAsync($"/d/{share.Token}/file/1");
         Require(download.StatusCode == HttpStatusCode.OK, "Le fichier protégé reste inaccessible après authentification.");
         Require((await download.Content.ReadAsByteArrayAsync()).SequenceEqual(content), "Le fichier du dossier a été altéré.");
+    }
+
+    private static async Task TestRestartAndExpirationAsync(string root, int port)
+    {
+        var path = Path.Combine(root, "été à Montréal — fichier avec espaces.txt");
+        var content = Encoding.UTF8.GetBytes("accents, espaces et redémarrage");
+        await File.WriteAllBytesAsync(path, content);
+        var share = ShareDescriptor.Create(path, isFolder: false, password: string.Empty, lifetime: null);
+        Require(!share.RequiresPassword, "Un mot de passe vide ne doit pas protéger le partage.");
+        Require(!share.IsExpired, "Un partage sans expiration est indiqué comme expiré.");
+
+        await DownloadAndVerifyAsync(share, port, content);
+        await DownloadAndVerifyAsync(share, port, content);
+
+        var expired = ShareDescriptor.Create(path, isFolder: false, password: null, lifetime: TimeSpan.FromSeconds(-1));
+        await using var server = new ShareServer(port);
+        server.Log += Console.Error.WriteLine;
+        await server.StartAsync(expired);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        using var response = await client.GetAsync($"/d/{expired.Token}");
+        Require(response.StatusCode == HttpStatusCode.Gone, "Un partage expiré n'est pas refusé en 410.");
+    }
+
+    private static async Task DownloadAndVerifyAsync(ShareDescriptor share, int port, byte[] expected)
+    {
+        await using var server = new ShareServer(port);
+        server.Log += Console.Error.WriteLine;
+        await server.StartAsync(share);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}") };
+        using var response = await client.GetAsync($"/d/{share.Token}/download");
+        Require(response.StatusCode == HttpStatusCode.OK, "Le téléchargement après démarrage/redémarrage a échoué.");
+        Require((await response.Content.ReadAsByteArrayAsync()).SequenceEqual(expected), "Le fichier accentué a été altéré.");
     }
 
     private static void Require(bool condition, string message)

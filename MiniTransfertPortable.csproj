@@ -8,6 +8,7 @@
     <AssemblyName>MiniTransfertPortable</AssemblyName>
     <RootNamespace>MiniTransfertPortable</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>assets\MiniTransfert.ico</ApplicationIcon>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
