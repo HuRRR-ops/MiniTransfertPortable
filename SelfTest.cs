@@ -150,10 +150,22 @@ internal static class SelfTest
         Require(PortAvailability.IsAvailable(55854, out _), "Le test de disponibilité refuse un port libre.");
 
         var settingsPath = Path.Combine(root, "MiniTransfertPortable.ini");
-        Require(PortableSettings.TrySavePort(61234, out var error, settingsPath), $"La sauvegarde du port a échoué : {error}");
-        Require(PortableSettings.LoadPort(settingsPath) == 61234, "Le port sauvegardé n'est pas rechargé.");
-        File.WriteAllText(settingsPath, "Port=70000");
-        Require(PortableSettings.LoadPort(settingsPath) == PortableSettings.DefaultPort, "Un port invalide n'est pas remplacé par le port par défaut.");
+        var saved = new PortableConfiguration(61234, "DirectFiles.DDNS.net.");
+        Require(PortableSettings.TrySave(saved, out var error, settingsPath), $"La sauvegarde de la configuration a échoué : {error}");
+        var loaded = PortableSettings.Load(settingsPath);
+        Require(loaded.Port == 61234, "Le port sauvegardé n'est pas rechargé.");
+        Require(loaded.PublicHost == "directfiles.ddns.net", "Le nom d'hôte DDNS n'est pas normalisé ou rechargé.");
+
+        Require(PortableSettings.TryNormalizePublicHost("directfiles.ddns.net", out var validHost)
+                && validHost == "directfiles.ddns.net",
+            "Un nom d'hôte DDNS valide est refusé.");
+        Require(!PortableSettings.TryNormalizePublicHost("http://directfiles.ddns.net:55750/test", out _),
+            "Une URL complète est acceptée comme nom d'hôte.");
+
+        File.WriteAllText(settingsPath, "Port=70000\r\nPublicHost=http://invalide/");
+        loaded = PortableSettings.Load(settingsPath);
+        Require(loaded.Port == PortableSettings.DefaultPort, "Un port invalide n'est pas remplacé par le port par défaut.");
+        Require(loaded.PublicHost is null, "Un nom d'hôte invalide n'est pas ignoré.");
     }
 
     private static void Require(bool condition, string message)

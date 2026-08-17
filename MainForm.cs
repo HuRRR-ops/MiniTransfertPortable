@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Net;
 
 namespace MiniTransfertPortable;
 
@@ -32,16 +33,19 @@ internal sealed class MainForm : RetroChromeForm
     private double _smoothedBytesPerSecond;
     private bool _closing;
     private int _port;
+    private string? _publicHost;
 
     public MainForm()
         : base("MiniTransfert Portable")
     {
-        _port = PortableSettings.LoadPort();
+        var configuration = PortableSettings.Load();
+        _port = configuration.Port;
+        _publicHost = configuration.PublicHost;
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(700, 500);
         ClientSize = new Size(800, 560);
         BuildInterface();
-        _statusLabel.Text = $"Prêt — port {_port}";
+        _statusLabel.Text = ReadyStatusText();
         _timer.Tick += UpdateTransferDisplay;
         _timer.Start();
         FormClosing += MainForm_FormClosing;
@@ -522,15 +526,25 @@ internal sealed class MainForm : RetroChromeForm
             _server.Log += AppendLog;
             await _server.StartAsync(_share);
 
-            _linkBox.Text = "Détection de l’adresse Internet...";
-            var publicAddress = await NetworkAddress.GetPublicIpAsync();
-            var address = publicAddress ?? NetworkAddress.GetLocalIp();
-            if (address is null)
+            _linkBox.Text = _publicHost is null ? "Détection de l’adresse Internet..." : "Préparation du lien DDNS...";
+            IPAddress? publicAddress = null;
+            string linkHost;
+            if (_publicHost is not null)
             {
-                throw new InvalidOperationException("Impossible de déterminer une adresse réseau.");
+                linkHost = _publicHost;
+            }
+            else
+            {
+                publicAddress = await NetworkAddress.GetPublicIpAsync();
+                var address = publicAddress ?? NetworkAddress.GetLocalIp();
+                if (address is null)
+                {
+                    throw new InvalidOperationException("Impossible de déterminer une adresse réseau.");
+                }
+                linkHost = NetworkAddress.UrlHost(address);
             }
 
-            _linkBox.Text = $"http://{NetworkAddress.UrlHost(address)}:{_port}/d/{_share.Token}";
+            _linkBox.Text = $"http://{linkHost}:{_port}/d/{_share.Token}";
             _copyButton.Enabled = true;
             _stopButton.Enabled = true;
             _startButton.Enabled = false;
@@ -542,12 +556,18 @@ internal sealed class MainForm : RetroChromeForm
             _previousBytes = 0;
             _previousSample = DateTime.UtcNow;
             _smoothedBytesPerSecond = 0;
-            _statusLabel.Text = publicAddress is null ? "Partage actif — adresse locale seulement" : "Partage actif — lien prêt";
+            _statusLabel.Text = _publicHost is not null
+                ? "Partage actif — lien DDNS prêt"
+                : publicAddress is null
+                    ? "Partage actif — adresse locale seulement"
+                    : "Partage actif — lien prêt";
             _statusLabel.ItemText = _share.IsFolder ? $"{_share.Files.Count:N0} fichier(s)" : "1 fichier";
             _statusLabel.ServerText = "Serveur actif";
-            AppendLog(publicAddress is null
-                ? $"[{DateTime.Now:HH:mm:ss}] Adresse publique indisponible; lien local affiché."
-                : $"[{DateTime.Now:HH:mm:ss}] Lien Internet prêt et copié.");
+            AppendLog(_publicHost is not null
+                ? $"[{DateTime.Now:HH:mm:ss}] Lien DDNS prêt : {_publicHost}:{_port}."
+                : publicAddress is null
+                    ? $"[{DateTime.Now:HH:mm:ss}] Adresse publique indisponible; lien local affiché."
+                    : $"[{DateTime.Now:HH:mm:ss}] Lien Internet prêt et copié.");
             CopyLink(silent: true);
         }
         catch (Exception exception)
@@ -601,7 +621,7 @@ internal sealed class MainForm : RetroChromeForm
                 item.ImageKey = _sourceIsFolder ? RetroIcons.Folder : RetroIcons.File;
             }
         }
-        _statusLabel.Text = $"Prêt — port {_port}";
+        _statusLabel.Text = ReadyStatusText();
         _statusLabel.ServerText = "Serveur arrêté";
         AppendLog($"[{DateTime.Now:HH:mm:ss}] Partage arrêté.");
     }
@@ -729,13 +749,20 @@ internal sealed class MainForm : RetroChromeForm
             return;
         }
 
-        using var dialog = new ConfigurationDialog(_port);
-        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.SelectedPort == _port)
+        using var dialog = new ConfigurationDialog(_port, _publicHost);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
         {
             return;
         }
 
-        if (!PortableSettings.TrySavePort(dialog.SelectedPort, out var error))
+        var newConfiguration = new PortableConfiguration(dialog.SelectedPort, dialog.SelectedPublicHost);
+        if (newConfiguration.Port == _port
+            && string.Equals(newConfiguration.PublicHost, _publicHost, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (!PortableSettings.TrySave(newConfiguration, out var error))
         {
             RetroMessageBox.Show(
                 this,
@@ -746,10 +773,17 @@ internal sealed class MainForm : RetroChromeForm
             return;
         }
 
-        _port = dialog.SelectedPort;
-        _statusLabel.Text = $"Prêt — port {_port}";
-        AppendLog($"[{DateTime.Now:HH:mm:ss}] Port configuré : {_port}.");
+        _port = newConfiguration.Port;
+        _publicHost = newConfiguration.PublicHost;
+        _statusLabel.Text = ReadyStatusText();
+        AppendLog(_publicHost is null
+            ? $"[{DateTime.Now:HH:mm:ss}] Port configuré : {_port}; adresse IP publique utilisée."
+            : $"[{DateTime.Now:HH:mm:ss}] Adresse configurée : {_publicHost}:{_port}.");
     }
+
+    private string ReadyStatusText() => _publicHost is null
+        ? $"Prêt — port {_port}"
+        : $"Prêt — {_publicHost}:{_port}";
 
     private void AppendLog(string line)
     {
