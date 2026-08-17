@@ -2,5 +2,6 @@ bin/
 obj/
 Portable/
 Portable-corrige/
+ReleaseOutput/
 *.user
 *.suo
